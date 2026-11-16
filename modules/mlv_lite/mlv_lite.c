@@ -3436,7 +3436,10 @@ void init_vsync_vars()
 /* per-clip summary in ML/RECLOG.CSV, written after the clip is closed (no cost while recording) */
 static int rec_log_start_ms;
 static int rec_log_temp_start;
-static int rec_log_peak_used;           /* most slots in use at once */
+static int rec_log_peak_pct;            /* highest buffer use while recording, % of all slots */
+static int rec_log_fps;                 /* FPS x1000 while recording (LiveView is paused at cleanup) */
+static int rec_log_rec_ms;              /* first frame requested */
+static int rec_log_stop_ms;             /* recording loop ended (before flushing the buffer) */
 
 static int rec_log_temp()
 {
@@ -3459,11 +3462,11 @@ static void rec_log_write(const char * stop_reason)
 
     struct tm now;
     LoadCalendarFromRTC(&now);
-    int seconds_x10 = (get_ms_clock() - rec_log_start_ms) / 100;
+    int seconds_x10 = (rec_log_rec_ms && rec_log_stop_ms > rec_log_rec_ms) ? (rec_log_stop_ms - rec_log_rec_ms) / 100 : 0;
     int mb_x10 = (int)(written_total * 10 / (1024 * 1024));
     int speed_x100 = writing_time ? (int)(written_total * 100 / 1024 * 1000 / 1024 / writing_time) : 0;
     int busy_pct = (writing_time + idle_time) ? writing_time * 100 / (writing_time + idle_time) : 0;
-    int fps = fps_get_current_x1000();
+    int fps = rec_log_fps;
     const char * name = raw_movie_filename ? raw_movie_filename : "";
     const char * base = name;
     for (const char * c = name; *c; c++) if (*c == '/') base = c + 1;
@@ -3473,7 +3476,7 @@ static void rec_log_write(const char * stop_reason)
         base, res_x, res_y, BPP, fps / 1000, fps % 1000,
         frame_count, skipped_frames, seconds_x10 / 10, seconds_x10 % 10,
         mb_x10 / 10, mb_x10 % 10, speed_x100 / 100, speed_x100 % 100, busy_pct,
-        valid_slot_count ? rec_log_peak_used * 100 / valid_slot_count : 0,
+        rec_log_peak_pct,
         rec_log_temp_start, rec_log_temp(), battery_level_bars, stop_reason);
     FIO_CloseFile(log);
 }
@@ -3509,7 +3512,10 @@ void raw_video_rec_task()
     buffer_full = 0;
     rec_log_start_ms = get_ms_clock();
     rec_log_temp_start = rec_log_temp();
-    rec_log_peak_used = 0;
+    rec_log_peak_pct = 0;
+    rec_log_fps = 0;
+    rec_log_rec_ms = 0;
+    rec_log_stop_ms = 0;
 
     if (lv_dispsize == 10)
     {
@@ -3599,6 +3605,8 @@ void raw_video_rec_task()
     set_recording_custom(CUSTOM_RECORDING_RAW);
     
     int fps = fps_get_current_x1000();
+    rec_log_fps = fps;
+    rec_log_rec_ms = get_ms_clock();
     
     int last_processed_frame = 0;
 
@@ -3704,7 +3712,8 @@ void raw_video_rec_task()
         int num_frames = MOD(last_grouped - w_head + 1, COUNT(writing_queue));
         
         int free_slots = count_free_slots();
-        rec_log_peak_used = MAX(rec_log_peak_used, valid_slot_count - free_slots);
+        if (total_slot_count)
+            rec_log_peak_pct = MAX(rec_log_peak_pct, (total_slot_count - free_slots) * 100 / total_slot_count);
         
         /* if we are about to overflow, save a smaller number of frames, so they can be freed quicker */
         if (measured_write_speed)
@@ -3857,6 +3866,8 @@ abort_and_check_early_stop:
             break;
         }
     }
+
+    rec_log_stop_ms = get_ms_clock();
 
     /* make sure the user doesn't rush to turn off the camera or something */
     gui_uilock(UILOCK_EVERYTHING);
