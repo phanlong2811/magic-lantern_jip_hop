@@ -1,0 +1,12 @@
+05670c3c9c4b  autoexec.bin
+f28f29b4ab39  ML/modules/bench.mo
+72a9b277c511  ML/modules/crop_rec.mo
+d3b10faa797e  ML/modules/dual_iso.mo
+a05021292dae  ML/modules/EOSM_202.sym
+f22b98e9b042  ML/modules/file_man.mo
+67a9db1b52f5  ML/modules/lua.mo
+69deb671afdb  ML/modules/mlv_lite.mo
+ea4868869179  ML/modules/mlv_play.mo
+7520c758f839  ML/modules/mlv_snd.mo
+525b68903973  ML/modules/sd_uhs.mo
+c3392d5d5e41  ML/modules/silent.mo
