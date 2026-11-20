@@ -72,6 +72,7 @@ static CONFIG_INT("crop.presets", presets, 0);
 static CONFIG_INT("crop.previews", previews, 0);
 static CONFIG_INT("crop.tapdisp", tapdisp, 0);
 static CONFIG_INT("crop.set", set, 0);
+static CONFIG_INT("crop.photo_gain", photo_gain, 1);
 
 CONFIG_INT("crop.bitdepth", bitdepth, 0);
 #define OUTPUT_10BIT (bitdepth == 1)
@@ -5182,6 +5183,15 @@ static struct menu_entry custom_buttons_menu[] =
                     "SET_switch = SET toggle aperture or ISO(turn off x3crop!)\n"
             },
             {
+                .name   = "photo mode",
+                .priv   = &photo_gain,
+                .max    = 1,
+                .choices = CHOICES("OFF", "M mode"),
+                .help   = "Same gain shortcuts in photo mode M (INFO switch, Up/Down).",
+                .help2  = "Replaces Canon Up (drive mode) and Down (AF point reset) in M.\n"
+                    "Drive mode stays in the Q menu. P/Av/Tv keep Canon's buttons.\n"
+            },
+            {
                 .name   = "INFO selectable",
                 .priv   = &previews,
                 .max    = 8,
@@ -5794,6 +5804,24 @@ enum { HL_ISO = 1, HL_AV, HL_TV };   /* bottom-bar items in lens.c */
 static struct msg_queue * gain_mq;
 static int info_switch = 0;     /* INFO_switch / SET_switch: 0 = Up/Down ISO, 1 = aperture */
 
+/* photo shortcuts: the same Up/Down + INFO controls in photo mode M (Canon's
+ * Up = drive mode and Down = AF point reset are given up there; P/Av/Tv untouched) */
+static int photo_gain_active()
+{
+    return photo_gain && !is_movie_mode() && shooting_mode == SHOOTMODE_M;
+}
+
+static int gain_mode_ok()
+{
+    return is_movie_mode() || photo_gain_active();
+}
+
+/* highest ISO for the shortcuts: 6400 in movie mode, 12800 for photos */
+static int gain_iso_max()
+{
+    return is_movie_mode() ? 0x78 : 0x80;
+}
+
 /* feedback: highlight the ISO / aperture / shutter values already on the bottom bar
  * (lens.c) instead of a box over the image. Weak, so an older autoexec shows nothing. */
 static int gain_dummy_target, gain_dummy_item, gain_dummy_until, gain_dummy_color;
@@ -5826,8 +5854,8 @@ static void gain_apply(uint32_t req)
     switch (req)
     {
         case GAIN_ISO_UP:
-            if (lens_info.raw_iso == 0x0 || lens_info.raw_iso >= 0x78) return;
-            lens_set_rawiso(MIN(lens_info.raw_iso + 8, 0x78));     /* expo override: BV path */
+            if (lens_info.raw_iso == 0x0 || lens_info.raw_iso >= gain_iso_max()) return;
+            lens_set_rawiso(MIN(lens_info.raw_iso + 8, gain_iso_max()));     /* expo override: BV path */
             break;
         case GAIN_ISO_DOWN:
             if (lens_info.raw_iso == 0x0 || lens_info.raw_iso <= 0x48) return;
@@ -5878,7 +5906,7 @@ static int gain_request(uint32_t req)
     {
         static int target, target_ms;
         int base = (target && get_ms_clock() - target_ms < 500) ? target : lens_info.raw_iso;
-        int next = COERCE(base + (up ? 8 : -8), 0x48, 0x78);
+        int next = COERCE(base + (up ? 8 : -8), 0x48, gain_iso_max());
         if (up ? next <= base : next >= base)
         {
             gain_show(HL_ISO, 1);
@@ -5893,7 +5921,7 @@ static int gain_request(uint32_t req)
     }
 
     int at_limit = iso
-        ? (up ? lens_info.raw_iso >= 0x78 : lens_info.raw_iso <= 0x48)
+        ? (up ? lens_info.raw_iso >= gain_iso_max() : lens_info.raw_iso <= 0x48)
         : (up ? lens_info.raw_aperture >= lens_info.raw_aperture_max
               : lens_info.raw_aperture <= lens_info.raw_aperture_min);
 
@@ -6562,7 +6590,7 @@ if (get_halfshutter_pressed() && CROP_PRESET_MENU == CROP_PRESET_Anamorphic_EOSM
     {
         return shutter_request(key == MODULE_KEY_WHEEL_RIGHT);
     }
-    if ((key == MODULE_KEY_INFO || key == MODULE_KEY_PRESS_SET) && lv && !gui_menu_shown() && is_movie_mode() && (gain_buttons == 3 || gain_buttons == 4))
+    if ((key == MODULE_KEY_INFO || (key == MODULE_KEY_PRESS_SET && is_movie_mode())) && lv && !gui_menu_shown() && gain_mode_ok() && (gain_buttons == 3 || gain_buttons == 4))
     {
         if(lv_disp_mode != 0){
             // Use INFO key to cycle LV as normal when not in the LV with ML overlays
@@ -6582,22 +6610,22 @@ if (get_halfshutter_pressed() && CROP_PRESET_MENU == CROP_PRESET_Anamorphic_EOSM
         NotifyBox(1000, "INFO_switch OFF");
     }
     
-    if (key == MODULE_KEY_PRESS_DOWN && lv && !gui_menu_shown() && is_movie_mode() && (gain_buttons == 2 || info_switch))
+    if (key == MODULE_KEY_PRESS_DOWN && lv && !gui_menu_shown() && gain_mode_ok() && (gain_buttons == 2 || info_switch))
     {
         return gain_request(GAIN_AP_DOWN);
     }
 
-    if (key == MODULE_KEY_PRESS_UP && lv && !gui_menu_shown() && is_movie_mode() && (gain_buttons == 2 || info_switch))
+    if (key == MODULE_KEY_PRESS_UP && lv && !gui_menu_shown() && gain_mode_ok() && (gain_buttons == 2 || info_switch))
     {
         return gain_request(GAIN_AP_UP);
     }
 
-        if (set != 8 && tapdisp != 8 && previews != 8 && key == MODULE_KEY_PRESS_UP && lv && !gui_menu_shown() && is_movie_mode() && (gain_buttons == 1 || (gain_buttons >= 3 && !info_switch)))
+        if (set != 8 && tapdisp != 8 && previews != 8 && key == MODULE_KEY_PRESS_UP && lv && !gui_menu_shown() && gain_mode_ok() && (gain_buttons == 1 || (gain_buttons >= 3 && !info_switch)))
         {
             return gain_request(GAIN_ISO_UP);
         }
         
-        if (set != 8 && tapdisp != 8 && previews != 8 && key == MODULE_KEY_PRESS_DOWN && lv && !gui_menu_shown() && is_movie_mode() && (gain_buttons == 1 || (gain_buttons >= 3 && !info_switch)))
+        if (set != 8 && tapdisp != 8 && previews != 8 && key == MODULE_KEY_PRESS_DOWN && lv && !gui_menu_shown() && gain_mode_ok() && (gain_buttons == 1 || (gain_buttons >= 3 && !info_switch)))
         {
             return gain_request(GAIN_ISO_DOWN);
         }
@@ -7131,7 +7159,7 @@ static void set_zoom(int zoom)
 /* when closing ML menu, check whether we need to refresh the LiveView */
 static unsigned int crop_rec_polling_cbr(unsigned int unused)
 {
-    lvinfo_gain_target = is_movie_mode() ? gain_target() : 0;
+    lvinfo_gain_target = gain_mode_ok() ? gain_target() : 0;
 
     if (gremag && crop_preset_index != 13)
     {
