@@ -6568,7 +6568,10 @@ if (get_halfshutter_pressed() && CROP_PRESET_MENU == CROP_PRESET_Anamorphic_EOSM
     }
 
     //rewire MENU key when INFO is remapped, first enter INFO, push MENU again and it enters canon menu as supposed to
-    if (key == MODULE_KEY_MENU && lv && !gui_menu_shown() && is_movie_mode() && (gain_buttons == 3 || gain_buttons == 4 || previews))
+    //(also in photo mode M when the photo gain shortcuts take over INFO)
+    if (key == MODULE_KEY_MENU && lv && !gui_menu_shown() &&
+        ((is_movie_mode() && (gain_buttons == 3 || gain_buttons == 4 || previews)) ||
+         (photo_gain_active() && (gain_buttons == 3 || gain_buttons == 4))))
     {
         // good place to close console
         console_hide();
